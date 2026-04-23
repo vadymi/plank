@@ -191,6 +191,19 @@
   }
   #btn-reset:active { border-color: var(--text); color: var(--text); }
 
+  #btn-cam {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--dim);
+    font-size: 18px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, transform 0.3s;
+    -webkit-appearance: none;
+  }
+  #btn-cam:active { border-color: var(--text); color: var(--text); transform: rotate(180deg); }
+
   /* Loading overlay */
   #loader {
     position: absolute;
@@ -291,6 +304,7 @@
   <div id="btn-row">
     <button id="btn-start" disabled>START</button>
     <button id="btn-reset">RESET</button>
+    <button id="btn-cam" title="Switch camera">⟳</button>
   </div>
 </div>
 
@@ -310,10 +324,11 @@ let elapsedMs = 0;
 let lastTick = null;
 let bestMs = 0;
 let lastPoseGood = false;
-let goodSince = null;   // timestamp when form became good (for grace start)
-let badSince  = null;   // timestamp when form became bad  (for grace pause)
-const GRACE_START_MS = 1000; // 1s good before timer starts
-const GRACE_PAUSE_MS = 500;  // 0.5s bad before timer pauses
+let goodSince = null;
+let badSince  = null;
+let facingMode = 'environment'; // default: back camera
+const GRACE_START_MS = 1000;
+const GRACE_PAUSE_MS = 500;
 
 // ─── DOM ───────────────────────────────────────────────────────────────────
 const video       = document.getElementById('video');
@@ -325,6 +340,7 @@ const timerEl     = document.getElementById('timer-display');
 const bestEl      = document.getElementById('best-time');
 const btnStart    = document.getElementById('btn-start');
 const btnReset    = document.getElementById('btn-reset');
+const btnCam      = document.getElementById('btn-cam');
 const loader      = document.getElementById('loader');
 const loaderSub   = document.getElementById('loader-sub');
 const pulseRing   = document.getElementById('pulse-ring');
@@ -585,7 +601,7 @@ async function init() {
   loaderSub.textContent = 'Requesting camera…';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+      video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false
     });
     video.srcObject = stream;
@@ -661,6 +677,31 @@ btnReset.addEventListener('click', () => {
   setTip(null);
   setBar(barHips, 0); setBar(barBack, 0); setBar(barNeck, 0);
 });
+
+async function switchCamera() {
+  // Stop current stream
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  // Toggle
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  // Flip video mirror: front camera needs mirroring, back does not (or vice versa — user preference)
+  video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(-1)';
+  // Restart stream
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    statusBadge.textContent = 'Camera switch failed';
+  }
+}
+
+btnCam.addEventListener('click', switchCamera);
 
 init();
 </script>
