@@ -295,7 +295,12 @@
 </div>
 
 <!-- MediaPipe via CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe_tasks-vision/0.10.14/vision_bundle.js" crossorigin="anonymous"></script>
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm';
+window._PoseLandmarker = PoseLandmarker;
+window._FilesetResolver = FilesetResolver;
+window.dispatchEvent(new Event('mediapipe-ready'));
+</script>
 <script>
 // ─── State ─────────────────────────────────────────────────────────────────
 let poseLandmarker = null;
@@ -593,19 +598,15 @@ async function init() {
 
   loaderSub.textContent = 'Loading AI model…';
   try {
-    const { PoseLandmarker, FilesetResolver } = window.mediapipeTasks || window;
-
-    // Try multiple CDN paths
-    let vision;
-    try {
-      vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
-      );
-    } catch {
-      vision = await FilesetResolver.forVisionTasks(
-        'https://cdnjs.cloudflare.com/ajax/libs/mediapipe_tasks-vision/0.10.14/wasm'
-      );
+    if (!window._PoseLandmarker) {
+      await new Promise(resolve => window.addEventListener('mediapipe-ready', resolve, { once: true }));
     }
+    const PoseLandmarker = window._PoseLandmarker;
+    const FilesetResolver = window._FilesetResolver;
+
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
 
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
