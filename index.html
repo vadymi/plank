@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Plank AI</title>
+<title>Plank AI · 04.25-2</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Plank AI">
@@ -460,15 +460,15 @@ function evalPose(lm) {
 
   // Composite
   const overall = hipScore * 0.5 + neckScore * 0.25 + legScore * 0.25;
-  const good = hipScore > 68 && overall > 68;
+  const good = hipScore > 59 && overall > 59;
 
   // Tips
   let tip = null;
-  if (hipScore < 68) {
+  if (hipScore < 59) {
     tip = hipAngleDeg < 160 ? '▲ Raise hips — keep body straight' : '▼ Lower hips — don\'t pike';
-  } else if (neckScore < 68) {
+  } else if (neckScore < 59) {
     tip = neckAngleDeg < 155 ? '↑ Lift head — neutral spine' : '↓ Drop head slightly';
-  } else if (legScore < 68) {
+  } else if (legScore < 59) {
     tip = '⬛ Straighten legs';
   }
 
