@@ -102,25 +102,48 @@
   }
   #tip.visible { opacity: 1; }
 
-  /* Bottom panel */
+  /* Bottom panel — always visible, opaque buttons */
   #panel {
     background: var(--panel);
     border-top: 1px solid var(--border);
-    padding: 16px 20px 20px;
+    padding: 12px 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
+    flex-shrink: 0;
   }
 
-  #timer-row {
+  /* Overlay panel: sits on top of camera, semi-transparent */
+  #overlay-panel {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 16px 12px;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(6px);
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
   }
+
+  /* Timer overlay — corner box, full opacity */
+  #timer-corner {
+    position: absolute;
+    top: 12px;
+    background: rgba(0,0,0,0.75);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px;
+    padding: 6px 14px 4px;
+    backdrop-filter: blur(8px);
+    transition: left 0.4s, right 0.4s;
+    pointer-events: none;
+  }
+  #timer-corner.left  { left: 12px; right: auto; }
+  #timer-corner.right { right: 12px; left: auto; }
 
   #timer-display {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 72px;
+    font-size: 58px;
     line-height: 1;
     letter-spacing: 2px;
     color: var(--text);
@@ -129,23 +152,22 @@
   #timer-display.running { color: var(--green); }
   #timer-display.paused  { color: var(--red); }
 
-  #best-wrap {
-    text-align: right;
-  }
-  #best-label { font-size: 9px; letter-spacing: 0.15em; color: var(--dim); text-transform: uppercase; }
-  #best-time  { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--dim); }
+  #best-wrap { text-align: center; }
+  #best-label { font-size: 8px; letter-spacing: 0.15em; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+  #best-time  { font-family: 'Bebas Neue', sans-serif; font-size: 20px; color: rgba(255,255,255,0.5); }
 
-  /* Form bars */
+  /* Form bars — semi-transparent overlay */
   #form-bars {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
+    opacity: 0.75;
   }
   .bar-item { display: flex; flex-direction: column; gap: 4px; }
-  .bar-label { font-size: 9px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; }
+  .bar-label { font-size: 9px; letter-spacing: 0.12em; color: rgba(255,255,255,0.6); text-transform: uppercase; }
   .bar-track {
     height: 4px;
-    background: #222;
+    background: rgba(255,255,255,0.15);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -276,6 +298,33 @@
   <div id="tip"></div>
   <div id="pulse-ring"></div>
 
+  <!-- Timer corner — moves left/right based on head position -->
+  <div id="timer-corner" class="right">
+    <div id="timer-display">0:00</div>
+    <div id="best-wrap">
+      <div id="best-label">Best</div>
+      <div id="best-time">0:00</div>
+    </div>
+  </div>
+
+  <!-- Semi-transparent overlay: just the form bars -->
+  <div id="overlay-panel">
+    <div id="form-bars">
+      <div class="bar-item">
+        <div class="bar-label">Hips</div>
+        <div class="bar-track"><div class="bar-fill" id="bar-hips"></div></div>
+      </div>
+      <div class="bar-item">
+        <div class="bar-label">Back</div>
+        <div class="bar-track"><div class="bar-fill" id="bar-back"></div></div>
+      </div>
+      <div class="bar-item">
+        <div class="bar-label">Neck</div>
+        <div class="bar-track"><div class="bar-fill" id="bar-neck"></div></div>
+      </div>
+    </div>
+  </div>
+
   <div id="loader">
     <div id="loader-title">PLANK AI</div>
     <div class="spinner"></div>
@@ -284,29 +333,6 @@
 </div>
 
 <div id="panel">
-  <div id="timer-row">
-    <div id="timer-display">0:00</div>
-    <div id="best-wrap">
-      <div id="best-label">Best</div>
-      <div id="best-time">0:00</div>
-    </div>
-  </div>
-
-  <div id="form-bars">
-    <div class="bar-item">
-      <div class="bar-label">Hips</div>
-      <div class="bar-track"><div class="bar-fill" id="bar-hips"></div></div>
-    </div>
-    <div class="bar-item">
-      <div class="bar-label">Back</div>
-      <div class="bar-track"><div class="bar-fill" id="bar-back"></div></div>
-    </div>
-    <div class="bar-item">
-      <div class="bar-label">Neck</div>
-      <div class="bar-track"><div class="bar-fill" id="bar-neck"></div></div>
-    </div>
-  </div>
-
   <div id="btn-row">
     <button id="btn-start" disabled>START</button>
     <button id="btn-reset">RESET</button>
@@ -347,6 +373,7 @@ const bestEl      = document.getElementById('best-time');
 const btnStart    = document.getElementById('btn-start');
 const btnReset    = document.getElementById('btn-reset');
 const btnCam      = document.getElementById('btn-cam');
+const timerCorner = document.getElementById('timer-corner');
 const loader      = document.getElementById('loader');
 const loaderSub   = document.getElementById('loader-sub');
 const pulseRing   = document.getElementById('pulse-ring');
@@ -433,19 +460,22 @@ function evalPose(lm) {
 
   // Composite
   const overall = hipScore * 0.5 + neckScore * 0.25 + legScore * 0.25;
-  const good = hipScore > 55 && overall > 55;
+  const good = hipScore > 68 && overall > 68;
 
   // Tips
   let tip = null;
-  if (hipScore < 55) {
+  if (hipScore < 68) {
     tip = hipAngleDeg < 160 ? '▲ Raise hips — keep body straight' : '▼ Lower hips — don\'t pike';
-  } else if (neckScore < 55) {
+  } else if (neckScore < 68) {
     tip = neckAngleDeg < 155 ? '↑ Lift head — neutral spine' : '↓ Drop head slightly';
-  } else if (legScore < 55) {
+  } else if (legScore < 68) {
     tip = '⬛ Straighten legs';
   }
 
-  return { valid: true, good, tip, hipScore, neckScore, legScore, overall };
+  // Head X position (0=left, 1=right) for corner switching
+  const headX = lm[0].x;
+
+  return { valid: true, good, tip, hipScore, neckScore, legScore, overall, headX };
 }
 
 // ─── Draw skeleton ──────────────────────────────────────────────────────────
@@ -560,6 +590,14 @@ function detect() {
   setBar(barHips, ev.hipScore);
   setBar(barBack, ev.legScore);
   setBar(barNeck, ev.neckScore);
+
+  // Switch timer corner away from head
+  // headX is 0..1 in video space; video is mirrored so we flip
+  if (ev.headX !== undefined) {
+    const mirroredX = 1 - ev.headX;
+    // If head is on the right half → put timer on left, and vice versa
+    timerCorner.className = 'timer-corner ' + (mirroredX > 0.5 ? 'left' : 'right');
+  }
 
   if (ev.good) {
     badSince = null;
