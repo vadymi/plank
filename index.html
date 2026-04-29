@@ -252,7 +252,7 @@
     letter-spacing: 4px;
     color: var(--green);
   }
-  #loader-sub { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; }
+  #loader-sub { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-align:center; line-height:1.6; max-width:80%; }
   .spinner {
     width: 32px; height: 32px;
     border: 2px solid #222;
@@ -430,12 +430,6 @@ const pulseRing   = document.getElementById('pulse-ring');
 const barHips     = document.getElementById('bar-hips');
 const barBack     = document.getElementById('bar-back');
 const barNeck     = document.getElementById('bar-neck');
-
-// ─── Kid Voice System ──────────────────────────────────────────────────────
-let kidSpeaking = false;
-let kidCooldown = false;
-let kidBubbleTimer = null;
-let pendingKidLine = null;
 
 // ─── Kid Voice System ──────────────────────────────────────────────────────
 let kidSpeaking = false;
@@ -854,47 +848,83 @@ function detect() {
 }
 
 // ─── Init ──────────────────────────────────────────────────────────────────
+function setLoader(msg, pct) {
+  const t = new Date().toISOString().substr(11,12);
+  loaderSub.innerHTML = (pct !== undefined
+    ? `<div style="margin-bottom:6px;font-size:13px;color:#00ff87">${pct}%</div>`
+    : '') +
+    `<div>${msg}</div>` +
+    `<div style="font-size:10px;color:#444;margin-top:4px">${t}</div>`;
+}
+
 async function init() {
-  loaderSub.textContent = 'Requesting camera…';
+  setLoader('Requesting camera…', 5);
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false
     });
+    setLoader('Camera OK — starting video…', 15);
     video.srcObject = stream;
     await video.play();
     video.classList.add('ready');
+    setLoader('Video playing ✓', 20);
 
     // Zoom out as wide as possible
     const track = stream.getVideoTracks()[0];
     const caps = track.getCapabilities?.();
     if (caps?.zoom) {
       const minZoom = caps.zoom.min ?? 1;
-      // Try 0.6 first, then 0.5, then whatever minimum is available
       const targetZoom = Math.max(minZoom, Math.min(0.6, caps.zoom.max));
       try {
         await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-      } catch {
-        // zoom not supported on this device — silent fail
+        setLoader(`Zoom set to ${targetZoom.toFixed(2)} ✓`, 22);
+      } catch(ze) {
+        setLoader(`Zoom not applied: ${ze.message}`, 22);
       }
+    } else {
+      setLoader('Zoom not supported on this camera', 22);
     }
   } catch(e) {
-    loaderSub.textContent = 'Camera access denied. Please allow camera and reload.';
+    setLoader(`❌ Camera failed: ${e.name} — ${e.message}`);
     return;
   }
 
-  loaderSub.textContent = 'Loading AI model…';
+  setLoader('Waiting for MediaPipe module…', 25);
   try {
     if (!window._PoseLandmarker) {
-      await new Promise(resolve => window.addEventListener('mediapipe-ready', resolve, { once: true }));
+      setLoader('Waiting for MediaPipe ES module to load…', 28);
+      const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('MediaPipe module timeout after 15s')), 15000)
+      );
+      await Promise.race([
+        new Promise(res => window.addEventListener('mediapipe-ready', res, { once: true })),
+        timeout
+      ]);
     }
-    const PoseLandmarker = window._PoseLandmarker;
-    const FilesetResolver = window._FilesetResolver;
+    setLoader('MediaPipe module loaded ✓', 35);
+  } catch(e) {
+    setLoader(`❌ MediaPipe module failed: ${e.message}`);
+    return;
+  }
 
-    const vision = await FilesetResolver.forVisionTasks(
+  const PoseLandmarker = window._PoseLandmarker;
+  const FilesetResolver = window._FilesetResolver;
+
+  setLoader('Loading WASM vision tasks…', 40);
+  let vision;
+  try {
+    vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
+    setLoader('WASM loaded ✓', 60);
+  } catch(e) {
+    setLoader(`❌ WASM load failed: ${e.message}`);
+    return;
+  }
 
+  setLoader('Downloading pose model (~5MB)…', 65);
+  try {
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
@@ -906,12 +936,31 @@ async function init() {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5
     });
+    setLoader('Pose model ready ✓', 95);
   } catch(e) {
-    loaderSub.textContent = 'Failed to load model: ' + e.message;
-    console.error(e);
-    return;
+    // GPU failed — retry with CPU
+    setLoader(`GPU failed (${e.message}) — retrying with CPU…`, 70);
+    try {
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+          delegate: 'CPU'
+        },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      setLoader('Pose model ready (CPU) ✓', 95);
+    } catch(e2) {
+      setLoader(`❌ Model load failed: ${e2.message}`);
+      return;
+    }
   }
 
+  setLoader('Starting…', 100);
+  await new Promise(r => setTimeout(r, 300));
   loader.classList.add('hidden');
   btnStart.disabled = false;
   statusBadge.textContent = 'Ready — get into position';
