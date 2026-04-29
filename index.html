@@ -163,7 +163,7 @@
     gap: 8px;
     opacity: 0.75;
   }
-  .bar-item { display: flex; flex-direction: column; gap: 4px; }
+  .bar-item { display: flex; flex-direction: column; gap: 4px; direction: ltr; }
   .bar-label { font-size: 9px; letter-spacing: 0.12em; color: rgba(255,255,255,0.6); text-transform: uppercase; }
   .bar-track {
     height: 4px;
@@ -783,8 +783,13 @@ function detect() {
   // headX is 0..1 in video space; video is mirrored so we flip
   if (ev.headX !== undefined) {
     const mirroredX = 1 - ev.headX;
-    // If head is on the right half → put timer on left, and vice versa
-    timerCorner.className = 'timer-corner ' + (mirroredX > 0.5 ? 'left' : 'right');
+    const headOnRight = mirroredX > 0.5;
+    // Timer corner opposite to head
+    timerCorner.className = 'timer-corner ' + (headOnRight ? 'left' : 'right');
+    // Bars order: Neck always on head side
+    // headOnRight → normal order: Hips | Back | Neck
+    // headOnLeft  → reversed:     Neck | Back | Hips
+    document.getElementById('form-bars').style.direction = headOnRight ? 'ltr' : 'rtl';
   }
 
   if (ev.good) {
