@@ -262,8 +262,54 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Skeleton canvas */
-  #skel-canvas {
+  /* Warning border blink */
+  #warn-border {
+    position: absolute;
+    inset: 0;
+    border: 5px solid transparent;
+    border-radius: 0;
+    pointer-events: none;
+    transition: border-color 0.15s;
+    z-index: 5;
+  }
+  #warn-border.warn { border-color: var(--yellow); }
+  @keyframes border-blink {
+    0%, 100% { border-color: transparent; }
+    50%       { border-color: var(--yellow); }
+  }
+  #warn-border.blinking { animation: border-blink 0.5s ease-in-out infinite; }
+
+  /* Kid voice bubble */
+  #kid-bubble {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 214, 10, 0.92);
+    color: #000;
+    border-radius: 18px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-align: center;
+    max-width: 85%;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 6;
+    white-space: nowrap;
+  }
+  #kid-bubble.visible { opacity: 1; }
+  #kid-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -8px; left: 50%;
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-bottom: none;
+    border-top-color: rgba(255,214,10,0.92);
+  }
     position: absolute;
     inset: 0;
     width: 100%; height: 100%;
@@ -294,8 +340,10 @@
 <div id="cam-wrap">
   <video id="video" playsinline muted></video>
   <canvas id="skel-canvas"></canvas>
+  <div id="warn-border"></div>
   <div id="status-badge">Initialising…</div>
   <div id="tip"></div>
+  <div id="kid-bubble"></div>
   <div id="pulse-ring"></div>
 
   <!-- Timer corner — moves left/right based on head position -->
@@ -374,12 +422,158 @@ const btnStart    = document.getElementById('btn-start');
 const btnReset    = document.getElementById('btn-reset');
 const btnCam      = document.getElementById('btn-cam');
 const timerCorner = document.getElementById('timer-corner');
+const warnBorder  = document.getElementById('warn-border');
+const kidBubble   = document.getElementById('kid-bubble');
 const loader      = document.getElementById('loader');
 const loaderSub   = document.getElementById('loader-sub');
 const pulseRing   = document.getElementById('pulse-ring');
 const barHips     = document.getElementById('bar-hips');
 const barBack     = document.getElementById('bar-back');
 const barNeck     = document.getElementById('bar-neck');
+
+// ─── Kid Voice System ──────────────────────────────────────────────────────
+let kidSpeaking = false;
+let kidCooldown = false;
+let kidBubbleTimer = null;
+let pendingKidLine = null;
+
+// ─── Kid Voice System ──────────────────────────────────────────────────────
+let kidSpeaking = false;
+let kidCooldown = false;
+let kidBubbleTimer = null;
+
+const KID_LINES = {
+
+  hips_low: [
+    "Your bummy is drooping! LIFT IT UP!",
+    "No saggy bum! This is not nap time!",
+    "You look like a sad bridge! FIX IT!",
+    "Hips UP! UP UP UP! Like RIGHT NOW!",
+    "Your tummy is gonna touch! Don't you dare!",
+    "Big people keep hips UP! Do it RIGHT!",
+  ],
+
+  hips_high: [
+    "You're not doing yoga! Hips DOWN!",
+    "Stop making a mountain! Flat back!",
+    "That's a triangle not a plank! DOWN!",
+    "Your bum is in the SKY! Come down!",
+    "Flat like a table! Not a tent!",
+    "You're making a roof! We live OUTSIDE!",
+  ],
+
+  neck: [
+    "HEAD UP! You're not looking for coins!",
+    "Stop staring at the floor! It's boring down there!",
+    "Chin up soldier! You can cry later!",
+    "Your head is falling off! HOLD IT UP!",
+    "Look forward! The floor isn't going anywhere!",
+    "Neck straight! Pretend you're very important!",
+    "Eyes forward! Look like a CHAMPION!",
+  ],
+
+  legs: [
+    "Bent knees is cheating and I can SEE it!",
+    "Straight legs! You have two of them USE THEM!",
+    "Unlock those knees! All the way straight!",
+    "Your legs are all bendy! Stop that!",
+    "Knees straight or it doesn't COUNT!",
+    "You have stiff legs somewhere! Find them!",
+  ],
+
+  shoulders: [
+    "Don't let your shoulders collapse! Push the floor!",
+    "Shoulder blades BACK! You're not a shrimp!",
+    "Stop sinking into your arms! PUSH!",
+    "Shoulders over elbows! Not in your EARS!",
+    "You're collapsing! Like a very big soggy cracker!",
+  ],
+
+  core: [
+    "Squeeze your tummy! Pretend you're wearing tight pants!",
+    "Belly button to spine! SQUEEZE IT!",
+    "Tight tummy! Like you swallowed a basketball!",
+    "Your middle is all wobbly! HOLD IT!",
+    "Core tight! You have one don't you?!",
+  ],
+
+  // Warning zone — minor drift, still in range, gentle nudge
+  minor: [
+    "Hey! I see you getting lazy! Not yet!",
+    "Almost wobbly! Come on, tighten up!",
+    "Don't you DARE give up now!",
+    "I can see it slipping! Hold HOLD HOLD!",
+    "You were doing SO good! Stay there!",
+    "Nooooo! Stay straight! Almost almost!",
+    "Keep it! Just a little more! You can do it!",
+    "I'm watching you! Don't move!",
+    "Wiggle detected! Fix it before I count to three!",
+    "One more second! One more! You're so close!",
+    "Your body said no but YOU say YES!",
+    "This is the hard part! This is why you're here!",
+  ],
+
+  // Generic / unclassified errors
+  generic: [
+    "Something is wrong and I don't know what but FIX IT!",
+    "You look very wrong right now! Adjust everything!",
+    "I don't know what that is but it's NOT a plank!",
+    "My teddy bear does better planks than this!",
+    "Reset! Reset! Everything is bad right now!",
+    "The camera is confused and so am I! FIX YOUR BODY!",
+    "You call THAT a plank?! My goldfish does better!",
+  ],
+};
+
+function pickLine(category) {
+  const lines = KID_LINES[category] || KID_LINES.generic;
+  return lines[Math.floor(Math.random() * lines.length)];
+}
+
+function speakKid(text) {
+  if (!text || kidSpeaking) return;
+  kidSpeaking = true;
+
+  kidBubble.textContent = '🧒 ' + text;
+  kidBubble.classList.add('visible');
+  clearTimeout(kidBubbleTimer);
+  kidBubbleTimer = setTimeout(() => kidBubble.classList.remove('visible'), 4500);
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.rate   = 1.45;
+  utt.pitch  = 2.0;
+  utt.volume = 1.0;
+
+  const voices = speechSynthesis.getVoices();
+  const kidVoice = voices.find(v =>
+    /female|girl|child|junior|zira|samantha|karen|moira|tessa/i.test(v.name)
+  ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+  if (kidVoice) utt.voice = kidVoice;
+
+  utt.onend  = () => { kidSpeaking = false; };
+  utt.onerror = () => { kidSpeaking = false; };
+  speechSynthesis.speak(utt);
+}
+
+function triggerKidVoice(category) {
+  if (kidCooldown || kidSpeaking) return;
+  kidCooldown = true;
+  setTimeout(() => { kidCooldown = false; }, 11000);
+  speakKid(pickLine(category));
+}
+
+// Map tip text to kid line category
+function tipToCategory(tip, hipAngleDeg) {
+  if (!tip) return 'minor';
+  if (/raise hips/i.test(tip))    return 'hips_low';
+  if (/lower hips/i.test(tip))    return 'hips_high';
+  if (/head|neck|lift head|drop head/i.test(tip)) return 'neck';
+  if (/legs|knee/i.test(tip))     return 'legs';
+  if (/shoulder/i.test(tip))      return 'shoulders';
+  if (/core|belly|tummy/i.test(tip)) return 'core';
+  return 'minor';
+}
+
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function fmtTime(ms) {
@@ -601,10 +795,10 @@ function detect() {
 
   if (ev.good) {
     badSince = null;
+    warnBorder.className = ''; // clear any warning
     statusBadge.className = 'good';
 
     if (!isRunning) {
-      // Grace period before auto-start
       if (!goodSince) { goodSince = now; }
       const waited = now - goodSince;
       const countdown = Math.ceil((GRACE_START_MS - waited) / 1000);
@@ -624,19 +818,38 @@ function detect() {
     setTip(null);
 
   } else {
-    goodSince = null;
-    statusBadge.className = 'bad';
-    statusBadge.textContent = 'Fix form!';
-    setTip(ev.tip);
+    // Determine if in warning zone (59–75) or fully bad (<59)
+    const worstScore = Math.min(ev.hipScore, ev.overall);
+    const inWarningZone = worstScore >= 59 && worstScore < 75;
 
-    if (isRunning) {
-      if (!badSince) badSince = now;
-      if (now - badSince > GRACE_PAUSE_MS) {
-        isRunning = false; lastTick = null;
-        timerEl.classList.remove('running'); timerEl.classList.add('paused');
+    goodSince = null;
+
+    if (inWarningZone && isRunning) {
+      // Blinking yellow border — still running
+      warnBorder.className = 'blinking';
+      statusBadge.className = 'warn';
+      statusBadge.textContent = 'Hold it! ⚠';
+      setTip(ev.tip);
+      tickTimer(now);
+      badSince = null; // reset bad timer — not pausing yet
+      // Trigger kid voice
+      triggerKidVoice(tipToCategory(ev.tip));
+    } else {
+      warnBorder.className = '';
+      statusBadge.className = 'bad';
+      statusBadge.textContent = 'Fix form!';
+      setTip(ev.tip);
+
+      if (isRunning) {
+        if (!badSince) badSince = now;
+        if (now - badSince > GRACE_PAUSE_MS) {
+          isRunning = false; lastTick = null;
+          timerEl.classList.remove('running'); timerEl.classList.add('paused');
+          warnBorder.className = '';
+        }
       }
+      if (isRunning) tickTimer(now);
     }
-    if (isRunning) tickTimer(now); // still tick during grace
   }
 }
 
@@ -651,6 +864,20 @@ async function init() {
     video.srcObject = stream;
     await video.play();
     video.classList.add('ready');
+
+    // Zoom out as wide as possible
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities?.();
+    if (caps?.zoom) {
+      const minZoom = caps.zoom.min ?? 1;
+      // Try 0.6 first, then 0.5, then whatever minimum is available
+      const targetZoom = Math.max(minZoom, Math.min(0.6, caps.zoom.max));
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+      } catch {
+        // zoom not supported on this device — silent fail
+      }
+    }
   } catch(e) {
     loaderSub.textContent = 'Camera access denied. Please allow camera and reload.';
     return;
@@ -718,6 +945,8 @@ btnReset.addEventListener('click', () => {
   btnStart.textContent = 'START'; btnStart.classList.remove('stop');
   statusBadge.className = '';
   statusBadge.textContent = 'Ready — get into position';
+  warnBorder.className = '';
+  kidBubble.classList.remove('visible');
   setTip(null);
   setBar(barHips, 0); setBar(barBack, 0); setBar(barNeck, 0);
 });
@@ -740,6 +969,15 @@ async function switchCamera() {
     });
     video.srcObject = stream;
     await video.play();
+
+    // Zoom out as wide as possible
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities?.();
+    if (caps?.zoom) {
+      const minZoom = caps.zoom.min ?? 1;
+      const targetZoom = Math.max(minZoom, Math.min(0.6, caps.zoom.max));
+      try { await track.applyConstraints({ advanced: [{ zoom: targetZoom }] }); } catch {}
+    }
   } catch(e) {
     statusBadge.textContent = 'Camera switch failed';
   }
